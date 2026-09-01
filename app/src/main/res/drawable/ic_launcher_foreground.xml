@@ -1,0 +1,47 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Vault Outer Shield & Circle -->
+    <path
+        android:pathData="M54,28 C42,28 32,38 32,50 C32,68 54,80 54,80 C54,80 76,68 76,50 C76,38 66,28 54,28 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="32"
+                android:startY="28"
+                android:endX="76"
+                android:endY="80"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#38BDF8" />
+                <item android:offset="0.6" android:color="#818CF8" />
+                <item android:offset="1.0" android:color="#C084FC" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Inner Vault Cutout -->
+    <path
+        android:fillColor="#0F172A"
+        android:pathData="M54,34 C46,34 39,41 39,50 C39,63 54,73 54,73 C54,73 69,63 69,50 C69,41 62,34 54,34 Z" />
+    <!-- Media Play & Download Icon Symbol -->
+    <path
+        android:pathData="M48,43 L64,52 L48,61 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="48"
+                android:startY="43"
+                android:endX="64"
+                android:endY="61"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#38BDF8" />
+                <item android:offset="1.0" android:color="#A855F7" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Download Badge Arrow in bottom right -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M54,64 L58,68 L55.5,68 L55.5,73 L52.5,73 L52.5,68 L50,68 Z" />
+</vector>
+
