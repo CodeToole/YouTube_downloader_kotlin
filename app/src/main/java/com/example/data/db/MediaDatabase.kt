@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.example.data.model.DownloadHistoryRecord
+import com.example.data.model.MediaFolder
 import com.example.data.model.Playlist
 import com.example.data.model.PlaylistItemCrossRef
 import com.example.data.model.SavedMedia
@@ -14,15 +15,17 @@ import com.example.data.model.SavedMedia
         SavedMedia::class,
         DownloadHistoryRecord::class,
         Playlist::class,
-        PlaylistItemCrossRef::class
+        PlaylistItemCrossRef::class,
+        MediaFolder::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class MediaDatabase : RoomDatabase() {
     abstract fun mediaDao(): MediaDao
     abstract fun downloadHistoryDao(): DownloadHistoryDao
     abstract fun playlistDao(): PlaylistDao
+    abstract fun mediaFolderDao(): MediaFolderDao
 
     companion object {
         @Volatile

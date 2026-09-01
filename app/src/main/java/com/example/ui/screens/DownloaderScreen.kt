@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
@@ -35,6 +36,8 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Link
@@ -47,6 +50,7 @@ import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.outlined.FolderOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -71,6 +75,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -88,11 +93,13 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.data.model.MediaFolder
 import com.example.data.model.MediaFormat
 import com.example.data.model.MediaInfo
 import com.example.data.model.MediaQuality
 import com.example.data.model.MediaType
 import com.example.downloader.DownloadState
+import com.example.ui.components.CreateOrEditFolderDialog
 import com.example.ui.theme.AccentSuccess
 import com.example.ui.theme.YouTubeRed
 import com.example.ui.viewmodel.MediaVaultViewModel
@@ -106,6 +113,7 @@ fun DownloaderScreen(
     modifier: Modifier = Modifier
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
+    var showCreateFolderDialog by remember { mutableStateOf(false) }
 
     val inputUrl by viewModel.inputUrl.collectAsStateWithLifecycle()
     val isExtracting by viewModel.isExtracting.collectAsStateWithLifecycle()
@@ -113,6 +121,8 @@ fun DownloaderScreen(
     val selectedFormat by viewModel.selectedFormat.collectAsStateWithLifecycle()
     val selectedQuality by viewModel.selectedQuality.collectAsStateWithLifecycle()
     val downloadState by viewModel.downloadState.collectAsStateWithLifecycle()
+    val allFolders by viewModel.allFolders.collectAsStateWithLifecycle()
+    val targetFolderForDownload by viewModel.targetFolderForDownload.collectAsStateWithLifecycle()
 
     Column(
         modifier = modifier
@@ -404,6 +414,10 @@ fun DownloaderScreen(
                             mediaInfo = media,
                             selectedFormat = selectedFormat,
                             selectedQuality = selectedQuality,
+                            allFolders = allFolders,
+                            selectedFolder = targetFolderForDownload,
+                            onFolderSelected = { viewModel.setTargetFolderForDownload(it) },
+                            onCreateNewFolder = { showCreateFolderDialog = true },
                             onFormatSelected = { viewModel.setFormat(it) },
                             onQualitySelected = { viewModel.setQuality(it) },
                             onStartDownload = { viewModel.startDownload() },
@@ -456,6 +470,17 @@ fun DownloaderScreen(
             }
         }
     }
+
+    if (showCreateFolderDialog) {
+        CreateOrEditFolderDialog(
+            folderToEdit = null,
+            onDismiss = { showCreateFolderDialog = false },
+            onConfirm = { name, color, iconName, description ->
+                viewModel.createFolder(name, color, iconName, description)
+                showCreateFolderDialog = false
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -464,6 +489,10 @@ private fun MediaPreviewCard(
     mediaInfo: MediaInfo,
     selectedFormat: MediaFormat,
     selectedQuality: MediaQuality,
+    allFolders: List<MediaFolder>,
+    selectedFolder: MediaFolder?,
+    onFolderSelected: (MediaFolder?) -> Unit,
+    onCreateNewFolder: () -> Unit,
     onFormatSelected: (MediaFormat) -> Unit,
     onQualitySelected: (MediaQuality) -> Unit,
     onStartDownload: () -> Unit,
@@ -723,6 +752,79 @@ private fun MediaPreviewCard(
                 }
             }
 
+            // 3. Destination Folder Selector (Optional)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "3. Save to Folder:",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    TextButton(
+                        onClick = onCreateNewFolder,
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("New Folder", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    // Uncategorized / None
+                    item {
+                        FilterChip(
+                            selected = selectedFolder == null,
+                            onClick = { onFolderSelected(null) },
+                            label = { Text("Uncategorized") },
+                            leadingIcon = {
+                                Icon(Icons.Outlined.FolderOff, contentDescription = null, modifier = Modifier.size(16.dp))
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                            ),
+                            modifier = Modifier.testTag("dest_folder_none")
+                        )
+                    }
+
+                    // Existing Folders
+                    items(allFolders, key = { it.id }) { folder ->
+                        val isSelected = selectedFolder?.id == folder.id
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { onFolderSelected(if (isSelected) null else folder) },
+                            label = { Text(folder.name) },
+                            leadingIcon = {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = Color(folder.color),
+                                    modifier = Modifier.size(12.dp)
+                                ) {}
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                labelColor = MaterialTheme.colorScheme.onSecondaryContainer
+                            ),
+                            modifier = Modifier.testTag("dest_folder_${folder.id}")
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(6.dp))
 
             // Primary Download Button
@@ -754,8 +856,9 @@ private fun MediaPreviewCard(
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(10.dp))
+                    val destFolderSuffix = if (selectedFolder != null) " to ${selectedFolder.name}" else ""
                     Text(
-                        text = "Save to Media Vault (${selectedFormat.name})",
+                        text = "Save to Media Vault (${selectedFormat.name})$destFolderSuffix",
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleSmall
                     )

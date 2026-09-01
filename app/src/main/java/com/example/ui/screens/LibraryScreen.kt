@@ -21,26 +21,38 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.DriveFileMove
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.FolderOff
 import androidx.compose.material.icons.outlined.FolderZip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FilledTonalButton
@@ -73,9 +85,14 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.data.model.MediaFolder
 import com.example.data.model.MediaType
 import com.example.data.model.SavedMedia
 import com.example.ui.components.AddToPlaylistBottomSheet
+import com.example.ui.components.CreateOrEditFolderDialog
+import com.example.ui.components.DeleteFolderDialog
+import com.example.ui.components.MoveToFolderBottomSheet
+import com.example.ui.components.getFolderIcon
 import com.example.ui.viewmodel.LibraryTabFilter
 import com.example.ui.viewmodel.MediaVaultViewModel
 import java.util.Date
@@ -92,8 +109,20 @@ fun LibraryScreen(
     val filter by viewModel.libraryFilter.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val targetPlaylistMedia by viewModel.addToPlaylistTargetMedia.collectAsStateWithLifecycle()
+    val allFolders by viewModel.allFolders.collectAsStateWithLifecycle()
+    val selectedFolderId by viewModel.selectedFolderId.collectAsStateWithLifecycle()
+    val moveToFolderTargetMedia by viewModel.moveToFolderTargetMedia.collectAsStateWithLifecycle()
 
     var mediaToDelete by remember { mutableStateOf<SavedMedia?>(null) }
+    var showCreateFolderDialog by remember { mutableStateOf(false) }
+    var folderToEdit by remember { mutableStateOf<MediaFolder?>(null) }
+    var folderToDelete by remember { mutableStateOf<MediaFolder?>(null) }
+
+    val activeFolder = remember(allFolders, selectedFolderId) {
+        if (selectedFolderId != null && selectedFolderId!! > 0) {
+            allFolders.find { it.id == selectedFolderId }
+        } else null
+    }
 
     LazyColumn(
         modifier = modifier
@@ -111,7 +140,7 @@ fun LibraryScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .testTag("library_search_field"),
-                    placeholder = { Text("Search vault by title, artist, format...", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)) },
+                    placeholder = { Text("Search vault by title, artist, folder...", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)) },
                     leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.Search,
@@ -136,7 +165,7 @@ fun LibraryScreen(
                     )
                 )
 
-                // Filter Chips Row
+                // Media Type Filter Chips Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -144,7 +173,7 @@ fun LibraryScreen(
                     FilterChip(
                         selected = filter == LibraryTabFilter.ALL,
                         onClick = { viewModel.setLibraryFilter(LibraryTabFilter.ALL) },
-                        label = { Text("All Media", fontWeight = if (filter == LibraryTabFilter.ALL) FontWeight.Bold else FontWeight.Medium) },
+                        label = { Text("All", fontWeight = if (filter == LibraryTabFilter.ALL) FontWeight.Bold else FontWeight.Medium) },
                         modifier = Modifier.testTag("filter_all_chip"),
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MaterialTheme.colorScheme.primary,
@@ -162,7 +191,7 @@ fun LibraryScreen(
                     FilterChip(
                         selected = filter == LibraryTabFilter.VIDEOS,
                         onClick = { viewModel.setLibraryFilter(LibraryTabFilter.VIDEOS) },
-                        label = { Text("Videos (MP4)", fontWeight = if (filter == LibraryTabFilter.VIDEOS) FontWeight.Bold else FontWeight.Medium) },
+                        label = { Text("Videos", fontWeight = if (filter == LibraryTabFilter.VIDEOS) FontWeight.Bold else FontWeight.Medium) },
                         leadingIcon = {
                             Icon(Icons.Default.Videocam, contentDescription = null, modifier = Modifier.size(16.dp))
                         },
@@ -185,7 +214,7 @@ fun LibraryScreen(
                     FilterChip(
                         selected = filter == LibraryTabFilter.AUDIO,
                         onClick = { viewModel.setLibraryFilter(LibraryTabFilter.AUDIO) },
-                        label = { Text("Audio (M4A/MP3)", fontWeight = if (filter == LibraryTabFilter.AUDIO) FontWeight.Bold else FontWeight.Medium) },
+                        label = { Text("Audio", fontWeight = if (filter == LibraryTabFilter.AUDIO) FontWeight.Bold else FontWeight.Medium) },
                         leadingIcon = {
                             Icon(Icons.Default.Audiotrack, contentDescription = null, modifier = Modifier.size(16.dp))
                         },
@@ -208,6 +237,304 @@ fun LibraryScreen(
             }
         }
 
+        // Folders Section Carousel
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.FolderOpen,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Folders & Categories",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
+                    TextButton(
+                        onClick = { showCreateFolderDialog = true },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                        modifier = Modifier.testTag("add_new_folder_button")
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("New Folder", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+
+                // Folder horizontal chips list
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    // "All Folders" Chip
+                    item {
+                        FilterChip(
+                            selected = selectedFolderId == null,
+                            onClick = { viewModel.selectFolder(null) },
+                            label = { Text("All Folders") },
+                            leadingIcon = {
+                                Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(16.dp))
+                            },
+                            modifier = Modifier.testTag("folder_filter_all"),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        )
+                    }
+
+                    // "Uncategorized" Chip
+                    item {
+                        FilterChip(
+                            selected = selectedFolderId == -1L,
+                            onClick = { viewModel.selectFolder(-1L) },
+                            label = { Text("Uncategorized") },
+                            leadingIcon = {
+                                Icon(Icons.Outlined.FolderOff, contentDescription = null, modifier = Modifier.size(16.dp))
+                            },
+                            modifier = Modifier.testTag("folder_filter_uncategorized"),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        )
+                    }
+
+                    // User Created Folders
+                    items(allFolders, key = { it.id }) { folder ->
+                        val isSelected = selectedFolderId == folder.id
+                        var showFolderMenu by remember { mutableStateOf(false) }
+
+                        Box {
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    if (isSelected) {
+                                        // clicking already selected folder toggles menu or keeps it
+                                        showFolderMenu = true
+                                    } else {
+                                        viewModel.selectFolder(folder.id)
+                                    }
+                                },
+                                label = { Text(folder.name) },
+                                leadingIcon = {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = Color(folder.color),
+                                        modifier = Modifier.size(14.dp)
+                                    ) {}
+                                },
+                                trailingIcon = if (isSelected) {
+                                    {
+                                        IconButton(
+                                            onClick = { showFolderMenu = true },
+                                            modifier = Modifier.size(18.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.MoreVert,
+                                                contentDescription = "Folder options",
+                                                tint = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+                                    }
+                                } else null,
+                                modifier = Modifier.testTag("folder_chip_${folder.id}"),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            )
+
+                            DropdownMenu(
+                                expanded = showFolderMenu,
+                                onDismissRequest = { showFolderMenu = false },
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Edit Folder") },
+                                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                    onClick = {
+                                        showFolderMenu = false
+                                        folderToEdit = folder
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Delete Folder", color = MaterialTheme.colorScheme.error) },
+                                    leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp)) },
+                                    onClick = {
+                                        showFolderMenu = false
+                                        folderToDelete = folder
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // If an active folder is selected, show Folder Info Header
+        if (activeFolder != null) {
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("active_folder_header"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                    border = BorderStroke(1.dp, Color(activeFolder.color).copy(alpha = 0.5f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(activeFolder.color),
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = getFolderIcon(activeFolder.iconName),
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+
+                            Column {
+                                Text(
+                                    text = activeFolder.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = if (activeFolder.description.isNotBlank()) activeFolder.description else "Folder category • ${savedList.size} items",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            IconButton(
+                                onClick = { folderToEdit = activeFolder },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.Edit, contentDescription = "Edit folder", modifier = Modifier.size(16.dp))
+                            }
+                            IconButton(
+                                onClick = { folderToDelete = activeFolder },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = "Delete folder", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                            }
+                            IconButton(
+                                onClick = { viewModel.selectFolder(null) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear folder filter", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (selectedFolderId == -1L) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.secondaryContainer,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.FolderOff,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+
+                            Column {
+                                Text(
+                                    text = "Uncategorized Media",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Showing files not assigned to any folder (${savedList.size} items)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            onClick = { viewModel.selectFolder(null) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Show all", modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            }
+        }
+
         // Empty State or List
         if (savedList.isEmpty()) {
             item {
@@ -226,6 +553,12 @@ fun LibraryScreen(
                     onPlay = { viewModel.playMedia(media) },
                     onShare = { viewModel.shareMediaFile(context, media) },
                     onAddToPlaylist = { viewModel.openAddToPlaylistDialog(media) },
+                    onMoveToFolder = { viewModel.setMoveToFolderTargetMedia(media) },
+                    onFolderTagClick = {
+                        if (media.folderId != null && media.folderId > 0) {
+                            viewModel.selectFolder(media.folderId)
+                        }
+                    },
                     onDelete = { mediaToDelete = media }
                 )
             }
@@ -238,6 +571,57 @@ fun LibraryScreen(
             media = media,
             viewModel = viewModel,
             onDismiss = { viewModel.closeAddToPlaylistDialog() }
+        )
+    }
+
+    // Move to Folder Bottom Sheet
+    moveToFolderTargetMedia?.let { media ->
+        MoveToFolderBottomSheet(
+            targetMedia = media,
+            folders = allFolders,
+            onDismiss = { viewModel.setMoveToFolderTargetMedia(null) },
+            onSelectFolder = { folder ->
+                viewModel.moveMediaToFolder(media.id, folder)
+            },
+            onCreateNewFolderRequested = {
+                showCreateFolderDialog = true
+            }
+        )
+    }
+
+    // Create New Folder Dialog
+    if (showCreateFolderDialog) {
+        CreateOrEditFolderDialog(
+            folderToEdit = null,
+            onDismiss = { showCreateFolderDialog = false },
+            onConfirm = { name, color, iconName, description ->
+                viewModel.createFolder(name, color, iconName, description)
+                showCreateFolderDialog = false
+            }
+        )
+    }
+
+    // Edit Existing Folder Dialog
+    folderToEdit?.let { folder ->
+        CreateOrEditFolderDialog(
+            folderToEdit = folder,
+            onDismiss = { folderToEdit = null },
+            onConfirm = { name, color, iconName, description ->
+                viewModel.updateFolder(folder.copy(name = name, color = color, iconName = iconName, description = description))
+                folderToEdit = null
+            }
+        )
+    }
+
+    // Delete Folder Confirmation Dialog
+    folderToDelete?.let { folder ->
+        DeleteFolderDialog(
+            folder = folder,
+            onDismiss = { folderToDelete = null },
+            onConfirmDelete = { deleteMediaInside ->
+                viewModel.deleteFolder(folder.id, deleteMediaInside)
+                folderToDelete = null
+            }
         )
     }
 
@@ -281,6 +665,8 @@ private fun SavedMediaCard(
     onPlay: () -> Unit,
     onShare: () -> Unit,
     onAddToPlaylist: () -> Unit,
+    onMoveToFolder: () -> Unit,
+    onFolderTagClick: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -376,7 +762,7 @@ private fun SavedMediaCard(
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    // Format and Size Badges
+                    // Format, Size, and Folder Badges
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -407,6 +793,39 @@ private fun SavedMediaCard(
                                 fontSize = 10.sp
                             )
                         }
+
+                        // Folder Tag Badge
+                        if (!media.folderName.isNullOrBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = MaterialTheme.colorScheme.tertiaryContainer,
+                                modifier = Modifier
+                                    .clickable { onFolderTagClick() }
+                                    .testTag("media_folder_badge_${media.id}")
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Folder,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                        modifier = Modifier.size(10.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text(
+                                        text = media.folderName,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                        fontSize = 10.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -424,6 +843,22 @@ private fun SavedMediaCard(
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Move to Folder Button
+                    FilledTonalIconButton(
+                        onClick = onMoveToFolder,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("item_folder_button_${media.id}"),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DriveFileMove,
+                            contentDescription = "Move to Folder",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
                     // Add to Playlist Button
                     FilledTonalIconButton(
                         onClick = onAddToPlaylist,

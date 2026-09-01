@@ -13,6 +13,7 @@ import com.example.data.model.BatchDownloadItem
 import com.example.data.model.BatchItemStatus
 import com.example.data.model.DownloadHistoryRecord
 import com.example.data.model.DownloadStatus
+import com.example.data.model.MediaFolder
 import com.example.data.model.MediaFormat
 import com.example.data.model.MediaInfo
 import com.example.data.model.MediaQuality
@@ -31,6 +32,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -70,7 +72,8 @@ class MediaVaultViewModel(application: Application) : AndroidViewModel(applicati
             context = application,
             mediaDao = db.mediaDao(),
             historyDao = db.downloadHistoryDao(),
-            playlistDao = db.playlistDao()
+            playlistDao = db.playlistDao(),
+            folderDao = db.mediaFolderDao()
         )
     }
 
@@ -157,7 +160,26 @@ class MediaVaultViewModel(application: Application) : AndroidViewModel(applicati
     )
 
     // ==========================================
-    // 4. Batch / Multi-Link Downloader State
+    // 4. Folder State & Management
+    // ==========================================
+    val allFolders: StateFlow<List<MediaFolder>> = repository.allFolders.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    // null = All Folders, -1L = Uncategorized (No Folder), > 0L = Specific Folder ID
+    private val _selectedFolderId = MutableStateFlow<Long?>(null)
+    val selectedFolderId: StateFlow<Long?> = _selectedFolderId.asStateFlow()
+
+    private val _targetFolderForDownload = MutableStateFlow<MediaFolder?>(null)
+    val targetFolderForDownload: StateFlow<MediaFolder?> = _targetFolderForDownload.asStateFlow()
+
+    private val _moveToFolderTargetMedia = MutableStateFlow<SavedMedia?>(null)
+    val moveToFolderTargetMedia: StateFlow<SavedMedia?> = _moveToFolderTargetMedia.asStateFlow()
+
+    // ==========================================
+    // 5. Batch / Multi-Link Downloader State
     // ==========================================
     private val _batchInputText = MutableStateFlow("")
     val batchInputText: StateFlow<String> = _batchInputText.asStateFlow()
@@ -175,7 +197,7 @@ class MediaVaultViewModel(application: Application) : AndroidViewModel(applicati
     private val batchConcurrencySemaphore = Semaphore(2) // 2 concurrent downloads
 
     // ==========================================
-    // 5. Library Search & Filter State
+    // 6. Library Search & Filter State
     // ==========================================
     private val _libraryFilter = MutableStateFlow(LibraryTabFilter.ALL)
     val libraryFilter: StateFlow<LibraryTabFilter> = _libraryFilter.asStateFlow()
@@ -228,25 +250,33 @@ class MediaVaultViewModel(application: Application) : AndroidViewModel(applicati
         )
     )
 
-    // Saved media list with search and filter applied
+    // Saved media list with search, format filter, and folder filter applied
     val savedMediaList: StateFlow<List<SavedMedia>> = combine(
         repository.allMedia,
         _libraryFilter,
+        _selectedFolderId,
         _searchQuery
-    ) { allMedia, filter, query ->
-        val filteredByType = when (filter) {
+    ) { allMedia, typeFilter, folderId, query ->
+        val filteredByType = when (typeFilter) {
             LibraryTabFilter.ALL -> allMedia
             LibraryTabFilter.VIDEOS -> allMedia.filter { it.mediaType == MediaType.VIDEO }
             LibraryTabFilter.AUDIO -> allMedia.filter { it.mediaType == MediaType.AUDIO }
         }
 
+        val filteredByFolder = when {
+            folderId == null -> filteredByType
+            folderId == -1L -> filteredByType.filter { it.folderId == null || it.folderId == 0L }
+            else -> filteredByType.filter { it.folderId == folderId }
+        }
+
         if (query.isBlank()) {
-            filteredByType
+            filteredByFolder
         } else {
-            filteredByType.filter {
+            filteredByFolder.filter {
                 it.title.contains(query, ignoreCase = true) ||
                 it.author.contains(query, ignoreCase = true) ||
-                it.format.extension.contains(query, ignoreCase = true)
+                it.format.extension.contains(query, ignoreCase = true) ||
+                (it.folderName != null && it.folderName.contains(query, ignoreCase = true))
             }
         }
     }.stateIn(
@@ -359,7 +389,9 @@ class MediaVaultViewModel(application: Application) : AndroidViewModel(applicati
                 format = format,
                 quality = quality,
                 resumeFromBytes = resumeFromBytes,
-                resumeFilePath = resumeFilePath
+                resumeFilePath = resumeFilePath,
+                targetFolderId = _targetFolderForDownload.value?.id,
+                targetFolderName = _targetFolderForDownload.value?.name
             ).collect { state ->
                 _downloadState.value = state
                 when (state) {
@@ -551,16 +583,29 @@ class MediaVaultViewModel(application: Application) : AndroidViewModel(applicati
 
     fun playPlaylist(playlist: Playlist, startIndex: Int = 0) {
         viewModelScope.launch {
-            val mediaList = repository.getMediaForPlaylist(playlist.id)
-            mediaList.collect { list ->
-                if (list.isNotEmpty()) {
-                    _playbackQueue.value = list
-                    _playbackQueueIndex.value = startIndex.coerceIn(0, list.lastIndex)
-                    _currentPlaylistName.value = playlist.name
-                    _currentPlayingMedia.value = list[_playbackQueueIndex.value]
-                } else {
-                    _userMessage.value = "Playlist is empty"
-                }
+            val list = repository.getMediaForPlaylist(playlist.id).first()
+            if (list.isNotEmpty()) {
+                _playbackQueue.value = list
+                _playbackQueueIndex.value = startIndex.coerceIn(0, list.lastIndex)
+                _currentPlaylistName.value = playlist.name
+                _currentPlayingMedia.value = list[_playbackQueueIndex.value]
+            } else {
+                _userMessage.value = "Playlist is empty"
+            }
+        }
+    }
+
+    fun shufflePlaylist(playlist: Playlist) {
+        viewModelScope.launch {
+            val list = repository.getMediaForPlaylist(playlist.id).first()
+            if (list.isNotEmpty()) {
+                val shuffled = list.shuffled()
+                _playbackQueue.value = shuffled
+                _playbackQueueIndex.value = 0
+                _currentPlaylistName.value = "${playlist.name} (Shuffled)"
+                _currentPlayingMedia.value = shuffled[0]
+            } else {
+                _userMessage.value = "Playlist is empty"
             }
         }
     }
@@ -590,6 +635,71 @@ class MediaVaultViewModel(application: Application) : AndroidViewModel(applicati
         if (prevIndex >= 0) {
             _playbackQueueIndex.value = prevIndex
             _currentPlayingMedia.value = queue[prevIndex]
+        }
+    }
+
+    // ==========================================
+    // Folder Actions
+    // ==========================================
+    fun selectFolder(folderId: Long?) {
+        _selectedFolderId.value = folderId
+    }
+
+    fun setTargetFolderForDownload(folder: MediaFolder?) {
+        _targetFolderForDownload.value = folder
+    }
+
+    fun setMoveToFolderTargetMedia(media: SavedMedia?) {
+        _moveToFolderTargetMedia.value = media
+    }
+
+    fun createFolder(name: String, color: Long = 0xFF6750A4, iconName: String = "folder", description: String = "") {
+        if (name.isBlank()) {
+            _userMessage.value = "Folder name cannot be empty"
+            return
+        }
+        viewModelScope.launch {
+            val folderId = repository.createFolder(name, color, iconName, description)
+            _userMessage.value = "Created folder \"$name\""
+        }
+    }
+
+    fun updateFolder(folder: MediaFolder) {
+        if (folder.name.isBlank()) {
+            _userMessage.value = "Folder name cannot be empty"
+            return
+        }
+        viewModelScope.launch {
+            repository.updateFolder(folder)
+            _userMessage.value = "Updated folder \"${folder.name}\""
+        }
+    }
+
+    fun deleteFolder(folderId: Long, deleteMedia: Boolean = false) {
+        viewModelScope.launch {
+            if (_selectedFolderId.value == folderId) {
+                _selectedFolderId.value = null
+            }
+            if (_targetFolderForDownload.value?.id == folderId) {
+                _targetFolderForDownload.value = null
+            }
+            repository.deleteFolder(folderId, deleteMedia)
+            _userMessage.value = "Deleted folder"
+        }
+    }
+
+    fun moveMediaToFolder(mediaId: Long, folder: MediaFolder?) {
+        viewModelScope.launch {
+            repository.moveMediaToFolder(mediaId, folder?.id, folder?.name)
+            _userMessage.value = if (folder != null) "Moved to \"${folder.name}\"" else "Moved to Uncategorized"
+            _moveToFolderTargetMedia.value = null
+        }
+    }
+
+    fun removeMediaFromFolder(mediaId: Long) {
+        viewModelScope.launch {
+            repository.moveMediaToFolder(mediaId, null, null)
+            _userMessage.value = "Removed from folder"
         }
     }
 

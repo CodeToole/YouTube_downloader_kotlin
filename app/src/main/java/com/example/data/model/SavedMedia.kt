@@ -37,5 +37,7 @@ data class SavedMedia(
     val thumbnailUrl: String = "",
     val mediaStoreUri: String = "",
     val filePath: String = "",
-    val downloadDate: Long = System.currentTimeMillis()
+    val downloadDate: Long = System.currentTimeMillis(),
+    val folderId: Long? = null,
+    val folderName: String? = null
 )

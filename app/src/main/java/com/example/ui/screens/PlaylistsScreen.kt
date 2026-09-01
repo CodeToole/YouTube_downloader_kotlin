@@ -231,6 +231,7 @@ fun PlaylistsScreen(
                 mediaList = playlistMediaList,
                 onBack = { viewModel.selectPlaylist(null) },
                 onPlayAll = { viewModel.playPlaylist(playlist) },
+                onShuffle = { viewModel.shufflePlaylist(playlist) },
                 onPlayItem = { index -> viewModel.playPlaylist(playlist, index) },
                 onRemoveItem = { media -> viewModel.removeMediaFromCurrentPlaylist(media) },
                 onRename = { playlistToRename = playlist },
@@ -434,6 +435,7 @@ fun PlaylistDetailView(
     mediaList: List<SavedMedia>,
     onBack: () -> Unit,
     onPlayAll: () -> Unit,
+    onShuffle: () -> Unit,
     onPlayItem: (Int) -> Unit,
     onRemoveItem: (SavedMedia) -> Unit,
     onRename: () -> Unit,
@@ -547,13 +549,13 @@ fun PlaylistDetailView(
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Button(
                         onClick = onPlayAll,
                         enabled = mediaList.isNotEmpty(),
                         modifier = Modifier
-                            .weight(1f)
+                            .weight(1.2f)
                             .testTag("btn_playlist_play_all"),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
@@ -562,19 +564,35 @@ fun PlaylistDetailView(
                         )
                     ) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text("Play All", fontWeight = FontWeight.Bold)
+                    }
+
+                    OutlinedButton(
+                        onClick = onShuffle,
+                        enabled = mediaList.isNotEmpty(),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("btn_playlist_shuffle")
+                    ) {
+                        Icon(Icons.Default.Shuffle, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Shuffle", fontWeight = FontWeight.SemiBold)
                     }
 
                     OutlinedButton(
                         onClick = onNavigateToLibrary,
                         shape = RoundedCornerShape(12.dp),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
-                        modifier = Modifier.testTag("btn_playlist_add_more")
+                        modifier = Modifier
+                            .weight(1.1f)
+                            .testTag("btn_playlist_add_more")
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Add Media", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        Text("Add", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                     }
                 }
             }

@@ -4,9 +4,11 @@ import android.content.Context
 import android.net.Uri
 import com.example.data.db.DownloadHistoryDao
 import com.example.data.db.MediaDao
+import com.example.data.db.MediaFolderDao
 import com.example.data.db.PlaylistDao
 import com.example.data.model.DownloadHistoryRecord
 import com.example.data.model.DownloadStatus
+import com.example.data.model.MediaFolder
 import com.example.data.model.MediaType
 import com.example.data.model.Playlist
 import com.example.data.model.PlaylistItemCrossRef
@@ -20,7 +22,8 @@ class MediaRepository(
     private val context: Context,
     private val mediaDao: MediaDao,
     private val historyDao: DownloadHistoryDao,
-    private val playlistDao: PlaylistDao
+    private val playlistDao: PlaylistDao,
+    private val folderDao: MediaFolderDao
 ) {
     // Media Operations
     val allMedia: Flow<List<SavedMedia>> = mediaDao.getAllMedia()
@@ -28,12 +31,21 @@ class MediaRepository(
     fun getMediaByType(mediaType: MediaType): Flow<List<SavedMedia>> =
         mediaDao.getMediaByType(mediaType)
 
+    fun getMediaByFolder(folderId: Long): Flow<List<SavedMedia>> =
+        mediaDao.getMediaByFolder(folderId)
+
+    val uncategorizedMedia: Flow<List<SavedMedia>> = mediaDao.getUncategorizedMedia()
+
     suspend fun insertMedia(media: SavedMedia): Long = withContext(Dispatchers.IO) {
         mediaDao.insertMedia(media)
     }
 
     suspend fun getMediaById(id: Long): SavedMedia? = withContext(Dispatchers.IO) {
         mediaDao.getMediaById(id)
+    }
+
+    suspend fun moveMediaToFolder(mediaId: Long, folderId: Long?, folderName: String?) = withContext(Dispatchers.IO) {
+        mediaDao.updateMediaFolder(mediaId, folderId, folderName)
     }
 
     suspend fun deleteMedia(media: SavedMedia) = withContext(Dispatchers.IO) {
@@ -130,6 +142,47 @@ class MediaRepository(
 
     suspend fun removeMediaFromPlaylist(playlistId: Long, mediaId: Long) = withContext(Dispatchers.IO) {
         playlistDao.deletePlaylistItem(playlistId, mediaId)
+    }
+
+    // ==========================================
+    // Folder Operations
+    // ==========================================
+    val allFolders: Flow<List<MediaFolder>> = folderDao.getAllFolders()
+
+    suspend fun createFolder(
+        name: String,
+        color: Long = 0xFF6750A4,
+        iconName: String = "folder",
+        description: String = ""
+    ): Long = withContext(Dispatchers.IO) {
+        folderDao.insertFolder(
+            MediaFolder(
+                name = name.trim(),
+                color = color,
+                iconName = iconName,
+                description = description.trim()
+            )
+        )
+    }
+
+    suspend fun updateFolder(folder: MediaFolder) = withContext(Dispatchers.IO) {
+        folderDao.updateFolder(folder)
+        mediaDao.updateFolderNameInMedia(folder.id, folder.name)
+    }
+
+    suspend fun deleteFolder(folderId: Long, deleteMediaFiles: Boolean = false) = withContext(Dispatchers.IO) {
+        if (deleteMediaFiles) {
+            // If user requested deleting the media inside
+            // Note: we can fetch media in folder and delete them
+        } else {
+            // Keep media files, simply move them to Uncategorized (null folderId)
+            mediaDao.clearFolderForMedia(folderId)
+        }
+        folderDao.deleteFolderById(folderId)
+    }
+
+    suspend fun getFolderById(id: Long): MediaFolder? = withContext(Dispatchers.IO) {
+        folderDao.getFolderById(id)
     }
 }
 
