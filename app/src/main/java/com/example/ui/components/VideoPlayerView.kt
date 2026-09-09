@@ -3,6 +3,7 @@ package com.example.ui.components
 import android.net.Uri
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
@@ -35,6 +36,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.GraphicEq
@@ -52,6 +54,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -61,11 +64,14 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -88,8 +94,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
@@ -101,31 +109,26 @@ import kotlinx.coroutines.delay
 import java.io.File
 import java.util.Locale
 
-@OptIn(UnstableApi::class)
+@OptIn(UnstableApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun MediaVaultPlayer(
+fun VideoPlayerView(
     media: SavedMedia,
-    onClose: () -> Unit,
-    onShare: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    onShare: (() -> Unit)? = null,
     playlistName: String? = null,
     currentIndex: Int = 0,
     totalInQueue: Int = 1,
     onNext: (() -> Unit)? = null,
-    onPrevious: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    onPrevious: (() -> Unit)? = null
 ) {
+    // Intercept system back gestures to smoothly dismiss player
+    BackHandler(enabled = true) {
+        onDismiss()
+    }
+
     val context = LocalContext.current
     val isVideo = media.mediaType == MediaType.VIDEO
-
-    var isPlaying by remember { mutableStateOf(true) }
-    var currentPositionMs by remember { mutableLongStateOf(0L) }
-    var durationMs by remember { mutableLongStateOf(media.durationMs.coerceAtLeast(1L)) }
-    var isSeeking by remember { mutableStateOf(false) }
-    var seekPositionMs by remember { mutableLongStateOf(0L) }
-    var controlsVisible by remember { mutableStateOf(true) }
-    var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
-    var isLooping by remember { mutableStateOf(false) }
-    var showSpeedMenu by remember { mutableStateOf(false) }
 
     // Initialize ExoPlayer
     val exoPlayer = remember {
@@ -143,7 +146,22 @@ fun MediaVaultPlayer(
         }
     }
 
-    // React to new media track change (e.g. playlist navigation)
+    // Compose state synced with Player
+    var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
+    var playbackState by remember { mutableIntStateOf(exoPlayer.playbackState) }
+    var durationMs by remember { mutableLongStateOf(media.durationMs.coerceAtLeast(0L)) }
+    var currentPositionMs by remember { mutableLongStateOf(0L) }
+
+    // Decoupled scrubbing state for smooth slider interactions
+    var isScrubbing by remember { mutableStateOf(false) }
+    var scrubPositionMs by remember { mutableLongStateOf(0L) }
+
+    var controlsVisible by remember { mutableStateOf(true) }
+    var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
+    var isLooping by remember { mutableStateOf(false) }
+    var showSpeedMenu by remember { mutableStateOf(false) }
+
+    // React to track changes (e.g. playlist navigation)
     LaunchedEffect(media.id) {
         val mediaUri = if (media.mediaStoreUri.isNotEmpty()) {
             Uri.parse(media.mediaStoreUri)
@@ -157,7 +175,7 @@ fun MediaVaultPlayer(
         exoPlayer.play()
     }
 
-    // Monitor ExoPlayer playback events
+    // Monitor ExoPlayer events and ensure proper resource cleanup
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
@@ -165,8 +183,12 @@ fun MediaVaultPlayer(
             }
 
             override fun onPlaybackStateChanged(state: Int) {
+                playbackState = state
                 if (state == Player.STATE_READY) {
-                    durationMs = exoPlayer.duration.coerceAtLeast(1L)
+                    val d = exoPlayer.duration
+                    if (d > 0) {
+                        durationMs = d
+                    }
                 } else if (state == Player.STATE_ENDED) {
                     isPlaying = false
                     if (!isLooping && onNext != null) {
@@ -174,20 +196,33 @@ fun MediaVaultPlayer(
                     }
                 }
             }
+
+            override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                val d = exoPlayer.duration
+                if (d > 0) {
+                    durationMs = d
+                }
+            }
         }
         exoPlayer.addListener(listener)
 
         onDispose {
             exoPlayer.removeListener(listener)
+            exoPlayer.pause()
             exoPlayer.release()
         }
     }
 
-    // Real-time progress ticker
-    LaunchedEffect(isPlaying, isSeeking) {
-        while (isPlaying && !isSeeking) {
-            currentPositionMs = exoPlayer.currentPosition
-            durationMs = exoPlayer.duration.coerceAtLeast(1L)
+    // Continuous progress update loop while media is playing
+    LaunchedEffect(isPlaying) {
+        while (isPlaying) {
+            if (!isScrubbing) {
+                currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+                val d = exoPlayer.duration
+                if (d > 0) {
+                    durationMs = d
+                }
+            }
             delay(250)
         }
     }
@@ -195,7 +230,7 @@ fun MediaVaultPlayer(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .testTag("media_vault_player"),
+            .testTag("video_player_view"),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
@@ -204,74 +239,80 @@ fun MediaVaultPlayer(
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            // Header Bar
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = if (isVideo) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
-                        modifier = Modifier.size(36.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = if (isVideo) Icons.Default.Videocam else Icons.Default.MusicNote,
-                                contentDescription = null,
-                                tint = if (isVideo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.size(20.dp)
-                            )
+            // Dedicated TopAppBar with back arrow and dismiss action
+            TopAppBar(
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = CircleShape,
+                            color = if (isVideo) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = if (isVideo) Icons.Default.Videocam else Icons.Default.MusicNote,
+                                    contentDescription = null,
+                                    tint = if (isVideo) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
                         }
-                    }
 
-                    Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
 
-                    Column {
-                        if (!playlistName.isNullOrEmpty()) {
+                        Column {
+                            if (!playlistName.isNullOrEmpty()) {
+                                Text(
+                                    text = "Playlist: $playlistName (${currentIndex + 1}/$totalInQueue)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                             Text(
-                                text = "Playlist: $playlistName (${currentIndex + 1}/$totalInQueue)",
-                                style = MaterialTheme.typography.labelSmall,
+                                text = media.title,
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "${media.author} • ${media.format.extension.uppercase()} • ${media.quality.displayName}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Text(
-                            text = media.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "${media.author} • ${media.format.extension.uppercase()} • ${media.quality.displayName}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                },
+                navigationIcon = {
                     IconButton(
-                        onClick = onShare,
-                        modifier = Modifier.testTag("player_share_button")
+                        onClick = onDismiss,
+                        modifier = Modifier.testTag("player_back_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = "Share",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
+                    }
+                },
+                actions = {
+                    if (onShare != null) {
+                        IconButton(
+                            onClick = onShare,
+                            modifier = Modifier.testTag("player_share_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Share",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
 
                     IconButton(
-                        onClick = onClose,
+                        onClick = onDismiss,
                         modifier = Modifier.testTag("player_close_button")
                     ) {
                         Icon(
@@ -280,56 +321,77 @@ fun MediaVaultPlayer(
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                }
-            }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                )
+            )
 
-            // Media Stage View (Video surface or Audio visualization)
+            // Media Stage (Video surface or Audio visualization)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(16f / 9f)
-                    .background(Color.Black)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        controlsVisible = !controlsVisible
-                    },
+                    .background(Color.Black),
                 contentAlignment = Alignment.Center
             ) {
                 if (isVideo) {
+                    // TextureView ensures SurfaceView does not punch through and intercept Compose touch events
                     AndroidView(
                         factory = { ctx ->
                             PlayerView(ctx).apply {
                                 player = exoPlayer
                                 useController = false
+                                surfaceType = PlayerView.SURFACE_TYPE_TEXTURE_VIEW
                                 layoutParams = FrameLayout.LayoutParams(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
                                 )
                             }
                         },
-                        modifier = Modifier.fillMaxSize()
+                        update = { playerView ->
+                            playerView.player = exoPlayer
+                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .zIndex(0f)
                     )
                 } else {
-                    // Audio Mode Visualizer with spinning cover art and pulsing audio wave
                     AudioVisualizerStage(
                         media = media,
-                        isPlaying = isPlaying
+                        isPlaying = isPlaying,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .zIndex(0f)
                     )
                 }
 
-                // Overlay Controls
-                androidx.compose.animation.AnimatedVisibility(
+                // Stage tap listener to toggle controls visibility
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(0.5f)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            controlsVisible = !controlsVisible
+                        }
+                )
+
+                // Custom Compose Control Overlay layered strictly above AndroidView
+                AnimatedVisibility(
                     visible = controlsVisible,
                     enter = fadeIn(),
                     exit = fadeOut(),
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(1f)
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.4f)),
+                            .background(Color.Black.copy(alpha = 0.45f)),
                         contentAlignment = Alignment.Center
                     ) {
                         Row(
@@ -457,21 +519,21 @@ fun MediaVaultPlayer(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                val displayPosition = if (isSeeking) seekPositionMs else currentPositionMs
+                val activePositionMs = if (isScrubbing) scrubPositionMs else currentPositionMs
                 val progressFraction = if (durationMs > 0) {
-                    (displayPosition.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+                    (activePositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
                 } else 0f
 
                 Slider(
                     value = progressFraction,
                     onValueChange = { fraction ->
-                        isSeeking = true
-                        seekPositionMs = (fraction * durationMs).toLong()
+                        isScrubbing = true
+                        scrubPositionMs = (fraction * durationMs).toLong().coerceIn(0L, durationMs)
                     },
                     onValueChangeFinished = {
-                        exoPlayer.seekTo(seekPositionMs)
-                        currentPositionMs = seekPositionMs
-                        isSeeking = false
+                        exoPlayer.seekTo(scrubPositionMs)
+                        currentPositionMs = scrubPositionMs
+                        isScrubbing = false
                     },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -489,7 +551,7 @@ fun MediaVaultPlayer(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = formatTime(displayPosition),
+                        text = formatTime(activePositionMs),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -498,7 +560,7 @@ fun MediaVaultPlayer(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Loop button
+                        // Loop toggle button
                         IconButton(
                             onClick = {
                                 isLooping = !isLooping
@@ -514,7 +576,7 @@ fun MediaVaultPlayer(
                             )
                         }
 
-                        // Speed dropdown button
+                        // Playback speed selector
                         Box {
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
@@ -573,6 +635,35 @@ fun MediaVaultPlayer(
             }
         }
     }
+}
+
+/**
+ * Backward compatibility wrapper for MediaVaultPlayer callers.
+ */
+@OptIn(UnstableApi::class)
+@Composable
+fun MediaVaultPlayer(
+    media: SavedMedia,
+    onClose: () -> Unit,
+    onShare: () -> Unit = {},
+    playlistName: String? = null,
+    currentIndex: Int = 0,
+    totalInQueue: Int = 1,
+    onNext: (() -> Unit)? = null,
+    onPrevious: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    VideoPlayerView(
+        media = media,
+        onDismiss = onClose,
+        onShare = onShare,
+        playlistName = playlistName,
+        currentIndex = currentIndex,
+        totalInQueue = totalInQueue,
+        onNext = onNext,
+        onPrevious = onPrevious,
+        modifier = modifier
+    )
 }
 
 @Composable

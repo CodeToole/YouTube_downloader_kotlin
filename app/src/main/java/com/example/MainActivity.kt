@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.DownloadStatus
 import com.example.ui.components.MediaVaultPlayer
+import com.example.ui.components.VideoPlayerView
 import com.example.ui.screens.DownloaderScreen
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.LibraryScreen
@@ -331,14 +332,14 @@ fun MediaVaultApp(viewModel: MediaVaultViewModel) {
                     val hasNext = playbackQueueIndex < queueSize - 1
                     val hasPrev = playbackQueueIndex > 0
 
-                    MediaVaultPlayer(
+                    VideoPlayerView(
                         media = media,
                         playlistName = currentPlaylistName,
                         currentIndex = playbackQueueIndex,
                         totalInQueue = if (queueSize > 0) queueSize else 1,
                         onNext = if (hasNext) { { viewModel.playNextInQueue() } } else null,
                         onPrevious = if (hasPrev) { { viewModel.playPreviousInQueue() } } else null,
-                        onClose = { viewModel.closePlayer() },
+                        onDismiss = { viewModel.closePlayer() },
                         onShare = { viewModel.shareMediaFile(context, media) },
                         modifier = Modifier.padding(bottom = 24.dp)
                     )
