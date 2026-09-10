@@ -9,6 +9,8 @@ class MediaInfo {
   final bool isYouTube;
   final int estimatedVideoSizeBytes;
   final int estimatedAudioSizeBytes;
+  final String? directStreamUrl;
+  final String? sourceName;
 
   MediaInfo({
     required this.title,
@@ -21,6 +23,8 @@ class MediaInfo {
     required this.isYouTube,
     required this.estimatedVideoSizeBytes,
     required this.estimatedAudioSizeBytes,
+    this.directStreamUrl,
+    this.sourceName,
   });
 
   Map<String, dynamic> toMap() => {
@@ -34,6 +38,8 @@ class MediaInfo {
         'isYouTube': isYouTube ? 1 : 0,
         'estimatedVideoSizeBytes': estimatedVideoSizeBytes,
         'estimatedAudioSizeBytes': estimatedAudioSizeBytes,
+        if (directStreamUrl != null) 'directStreamUrl': directStreamUrl,
+        if (sourceName != null) 'sourceName': sourceName,
       };
 
   factory MediaInfo.fromMap(Map<String, dynamic> map) => MediaInfo(
@@ -47,5 +53,7 @@ class MediaInfo {
         isYouTube: map['isYouTube'] == 1 || map['isYouTube'] == true,
         estimatedVideoSizeBytes: map['estimatedVideoSizeBytes'] ?? 0,
         estimatedAudioSizeBytes: map['estimatedAudioSizeBytes'] ?? 0,
+        directStreamUrl: map['directStreamUrl'],
+        sourceName: map['sourceName'],
       );
 }

@@ -163,10 +163,17 @@ class MediaDownloader {
     }
 
     // Determine download URL
-    String targetDownloadUrl = (!mediaInfo.isYouTube &&
-            (mediaInfo.originalUrl.endsWith('.mp4') || mediaInfo.originalUrl.endsWith('.mp3')))
-        ? mediaInfo.originalUrl
-        : (isVideo ? sampleVideoUrl : sampleAudioUrl);
+    String targetDownloadUrl;
+    if (mediaInfo.directStreamUrl != null &&
+        mediaInfo.directStreamUrl!.isNotEmpty) {
+      targetDownloadUrl = mediaInfo.directStreamUrl!;
+    } else if (!mediaInfo.isYouTube &&
+        (mediaInfo.originalUrl.startsWith('http://') ||
+            mediaInfo.originalUrl.startsWith('https://'))) {
+      targetDownloadUrl = mediaInfo.originalUrl;
+    } else {
+      targetDownloadUrl = isVideo ? sampleVideoUrl : sampleAudioUrl;
+    }
 
     int totalBytes = isVideo ? mediaInfo.estimatedVideoSizeBytes : mediaInfo.estimatedAudioSizeBytes;
     int bytesRead = actualStartByte;

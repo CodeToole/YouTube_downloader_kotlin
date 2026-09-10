@@ -293,22 +293,30 @@ class _DownloaderScreenState extends State<DownloaderScreen> {
                                     ),
                                   ),
                                   const SizedBox(width: 8),
-                                  if (controller.extractedMedia!.isYouTube)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFFF0000).withValues(alpha: 0.2),
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: const Text(
-                                        'YouTube',
-                                        style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold,
-                                            color: Color(0xFFFF4D4D)),
-                                      ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: controller.extractedMedia!.isYouTube
+                                          ? const Color(0xFFFF0000)
+                                              .withValues(alpha: 0.2)
+                                          : const Color(0xFF6750A4)
+                                              .withValues(alpha: 0.2),
+                                      borderRadius: BorderRadius.circular(4),
                                     ),
+                                    child: Text(
+                                      controller.extractedMedia!.sourceName ??
+                                          (controller.extractedMedia!.isYouTube
+                                              ? 'YouTube'
+                                              : 'Direct Stream'),
+                                      style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: controller.extractedMedia!.isYouTube
+                                              ? const Color(0xFFFF4D4D)
+                                              : const Color(0xFFD0BCFF)),
+                                    ),
+                                  ),
                                 ],
                               ),
                             ],

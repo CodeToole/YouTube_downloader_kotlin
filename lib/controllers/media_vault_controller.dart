@@ -82,6 +82,8 @@ class MediaVaultController extends ChangeNotifier {
     notifyListeners();
   }
 
+  MediaSourceType get currentSourceType => MediaExtractor.classifyUrl(_inputUrl);
+
   Future<void> extractMedia([String? urlToExtract]) async {
     final targetUrl = (urlToExtract ?? _inputUrl).trim();
     if (targetUrl.isEmpty) return;
@@ -93,6 +95,21 @@ class MediaVaultController extends ChangeNotifier {
     try {
       final info = await MediaExtractor.extractMediaInfo(targetUrl);
       _extractedMedia = info;
+
+      // Automatically align selected format with media stream type
+      final lower = (info.directStreamUrl ?? targetUrl).toLowerCase();
+      if (lower.endsWith('.mp3') ||
+          lower.endsWith('.m4a') ||
+          lower.endsWith('.wav') ||
+          lower.endsWith('.aac') ||
+          lower.endsWith('.flac')) {
+        _selectedFormat = 'MP3';
+      } else if (lower.endsWith('.mp4') ||
+          lower.endsWith('.webm') ||
+          lower.endsWith('.mov') ||
+          lower.endsWith('.mkv')) {
+        _selectedFormat = 'MP4';
+      }
     } catch (e) {
       // Error handled gracefully with fallback
     } finally {

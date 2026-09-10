@@ -3,6 +3,8 @@ import 'package:media_vault/models/saved_media.dart';
 import 'package:media_vault/models/media_folder.dart';
 import 'package:media_vault/models/playlist.dart';
 import 'package:media_vault/models/download_history_record.dart';
+import 'package:media_vault/models/media_info.dart';
+import 'package:html/parser.dart' as html_parser;
 import 'package:media_vault/services/media_extractor.dart';
 
 void main() {
@@ -172,4 +174,157 @@ void main() {
       expect(formatDuration(const Duration(minutes: 75, seconds: 9)), equals('75:09'));
     });
   });
+
+  group('MediaSourceExtractor & URL Classification Tests', () {
+    test('classifies YouTube URLs correctly', () {
+      expect(
+        MediaExtractor.classifyUrl('https://youtu.be/dQw4w9WgXcQ'),
+        equals(MediaSourceType.youtube),
+      );
+      expect(
+        MediaExtractor.classifyUrl('https://www.youtube.com/watch?v=aqz-KE-bpKQ'),
+        equals(MediaSourceType.youtube),
+      );
+      expect(
+        MediaExtractor.classifyUrl('https://youtube.com/shorts/abcdefghijk'),
+        equals(MediaSourceType.youtube),
+      );
+    });
+
+    test('classifies direct media links correctly', () {
+      expect(
+        MediaExtractor.classifyUrl('https://example.com/videos/tutorial.mp4'),
+        equals(MediaSourceType.directMedia),
+      );
+      expect(
+        MediaExtractor.classifyUrl('https://example.com/stream.webm?token=123'),
+        equals(MediaSourceType.directMedia),
+      );
+      expect(
+        MediaExtractor.classifyUrl('https://example.com/audio/song.m4a'),
+        equals(MediaSourceType.directMedia),
+      );
+      expect(
+        MediaExtractor.classifyUrl('https://example.com/podcast.mp3'),
+        equals(MediaSourceType.directMedia),
+      );
+      expect(
+        MediaExtractor.classifyUrl('https://example.com/recording.mov'),
+        equals(MediaSourceType.directMedia),
+      );
+    });
+
+    test('classifies generic web URLs and invalid URLs correctly', () {
+      expect(
+        MediaExtractor.classifyUrl('https://news.ycombinator.com/item?id=123'),
+        equals(MediaSourceType.genericWeb),
+      );
+      expect(
+        MediaExtractor.classifyUrl('https://vimeo.com/channels/staffpicks'),
+        equals(MediaSourceType.genericWeb),
+      );
+      expect(
+        MediaExtractor.classifyUrl('not a valid url'),
+        equals(MediaSourceType.unsupported),
+      );
+    });
+
+    test('DirectLinkExtractor extracts titles from paths and cleans filename', () {
+      expect(
+        DirectLinkExtractor.extractTitleFromUrl(
+            'https://cdn.example.com/files/awesome_nature_walk-1080p.mp4'),
+        equals('Awesome Nature Walk 1080p'),
+      );
+      expect(
+        DirectLinkExtractor.extractTitleFromUrl(
+            'https://cdn.example.com/audio/my%20favorite%20song.mp3?download=1'),
+        equals('My Favorite Song'),
+      );
+      expect(
+        DirectLinkExtractor.extractTitleFromUrl('https://cdn.example.com/.mp4'),
+        equals('Direct Media Stream'),
+      );
+    });
+
+    test('DirectLinkExtractor detects media extensions', () {
+      expect(DirectLinkExtractor.isDirectMediaUrl('https://test.com/sample.mp4'), isTrue);
+      expect(DirectLinkExtractor.isDirectMediaUrl('https://test.com/sample.webm'), isTrue);
+      expect(DirectLinkExtractor.isDirectMediaUrl('https://test.com/sample.m4a'), isTrue);
+      expect(DirectLinkExtractor.isDirectMediaUrl('https://test.com/sample.mp3'), isTrue);
+      expect(DirectLinkExtractor.isDirectMediaUrl('https://test.com/sample.mov'), isTrue);
+      expect(DirectLinkExtractor.isDirectMediaUrl('https://test.com/sample.html'), isFalse);
+    });
+
+    test('GenericWebExtractor parses OpenGraph and video tags from HTML', () {
+      const sampleHtml = '''
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Test Page Title</title>
+          <meta property="og:title" content="Sample OpenGraph Video">
+          <meta property="og:video" content="https://example.com/stream/video.mp4">
+          <meta property="og:image" content="https://example.com/poster.jpg">
+          <meta property="og:site_name" content="VideoPortal">
+        </head>
+        <body>
+          <video src="https://example.com/fallback.mp4"></video>
+        </body>
+        </html>
+      ''';
+      final doc = html_parser.parse(sampleHtml);
+      final ogVideo = doc.querySelector('meta[property="og:video"]')?.attributes['content'];
+      final ogImage = doc.querySelector('meta[property="og:image"]')?.attributes['content'];
+      final ogTitle = doc.querySelector('meta[property="og:title"]')?.attributes['content'];
+      final ogSiteName = doc.querySelector('meta[property="og:site_name"]')?.attributes['content'];
+      final videoSrc = doc.querySelector('video')?.attributes['src'];
+
+      expect(ogVideo, equals('https://example.com/stream/video.mp4'));
+      expect(ogImage, equals('https://example.com/poster.jpg'));
+      expect(ogTitle, equals('Sample OpenGraph Video'));
+      expect(ogSiteName, equals('VideoPortal'));
+      expect(videoSrc, equals('https://example.com/fallback.mp4'));
+    });
+
+    test('MediaExtractor strategy registry supports custom extractors', () {
+      bool customCalled = false;
+      final dummyExtractor = _DummyExtractor(onHandled: () => customCalled = true);
+      MediaExtractor.registerExtractor(dummyExtractor, atBeginning: true);
+
+      expect(MediaExtractor.classifyUrl('https://custom-site.org/stream'), equals(MediaSourceType.unsupported));
+      expect(dummyExtractor.canHandle('https://custom-site.org/stream'), isTrue);
+      expect(customCalled, isTrue);
+    });
+  });
+}
+
+class _DummyExtractor implements MediaSourceExtractor {
+  final void Function() onHandled;
+  _DummyExtractor({required this.onHandled});
+
+  @override
+  MediaSourceType get sourceType => MediaSourceType.unsupported;
+
+  @override
+  bool canHandle(String url) {
+    if (url.contains('custom-site.org')) {
+      onHandled();
+      return true;
+    }
+    return false;
+  }
+
+  @override
+  Future<MediaInfo> extract(String url) async {
+    return MediaInfo(
+      title: 'Custom Stream',
+      author: 'Custom Author',
+      originalUrl: url,
+      thumbnailUrl: '',
+      durationFormatted: '01:00',
+      durationMs: 60000,
+      isYouTube: false,
+      estimatedVideoSizeBytes: 1000,
+      estimatedAudioSizeBytes: 1000,
+    );
+  }
 }
