@@ -125,4 +125,51 @@ void main() {
       expect(history.toMap()['status'], equals('COMPLETED'));
     });
   });
+
+  group('MediaPlayer Scrubber & Duration Logic', () {
+    test('Slider max falls back to 1.0 when duration <= 0', () {
+      const zeroDuration = Duration.zero;
+      final maxZero = zeroDuration.inMilliseconds > 0
+          ? zeroDuration.inMilliseconds.toDouble()
+          : 1.0;
+      expect(maxZero, equals(1.0));
+
+      const negativeDuration = Duration(milliseconds: -100);
+      final maxNeg = negativeDuration.inMilliseconds > 0
+          ? negativeDuration.inMilliseconds.toDouble()
+          : 1.0;
+      expect(maxNeg, equals(1.0));
+
+      const validDuration = Duration(seconds: 45);
+      final maxVal = validDuration.inMilliseconds > 0
+          ? validDuration.inMilliseconds.toDouble()
+          : 1.0;
+      expect(maxVal, equals(45000.0));
+    });
+
+    test('Slider value clamps safely within bounds', () {
+      const zeroDuration = Duration.zero;
+      final maxVal = zeroDuration.inMilliseconds > 0
+          ? zeroDuration.inMilliseconds.toDouble()
+          : 1.0;
+      final currentMs = 5000.0;
+      final clamped = currentMs.clamp(0.0, maxVal);
+      expect(clamped, equals(1.0));
+      expect(clamped >= 0.0 && clamped <= maxVal, isTrue);
+    });
+
+    test('Duration format handles normal and negative edge cases', () {
+      String formatDuration(Duration d) {
+        if (d.isNegative) return '00:00';
+        final minutes = d.inMinutes;
+        final seconds = d.inSeconds % 60;
+        return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+      }
+
+      expect(formatDuration(Duration.zero), equals('00:00'));
+      expect(formatDuration(const Duration(milliseconds: -500)), equals('00:00'));
+      expect(formatDuration(const Duration(minutes: 3, seconds: 24)), equals('03:24'));
+      expect(formatDuration(const Duration(minutes: 75, seconds: 9)), equals('75:09'));
+    });
+  });
 }

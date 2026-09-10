@@ -570,11 +570,26 @@ class MediaVaultController extends ChangeNotifier {
   // ==========================================
   // 7. In-App Playback State (media_kit)
   // ==========================================
-  late final Player _player = Player();
-  late final VideoController _videoController = VideoController(_player);
+  Player? _player;
+  VideoController? _videoController;
 
-  Player get player => _player;
-  VideoController get videoController => _videoController;
+  Player get player {
+    _ensurePlayer();
+    return _player!;
+  }
+
+  VideoController get videoController {
+    _ensurePlayer();
+    return _videoController!;
+  }
+
+  void _ensurePlayer() {
+    if (_player == null) {
+      _player = Player();
+      _videoController = VideoController(_player!);
+      _initPlayerListeners();
+    }
+  }
 
   SavedMedia? _currentlyPlayingMedia;
   SavedMedia? get currentlyPlayingMedia => _currentlyPlayingMedia;
@@ -597,19 +612,26 @@ class MediaVaultController extends ChangeNotifier {
   StreamSubscription? _completedSub;
 
   void _initPlayerListeners() {
-    _playingSub = _player.stream.playing.listen((playing) {
+    final p = _player;
+    if (p == null) return;
+    _playingSub?.cancel();
+    _positionSub?.cancel();
+    _durationSub?.cancel();
+    _completedSub?.cancel();
+
+    _playingSub = p.stream.playing.listen((playing) {
       _isPlaying = playing;
       notifyListeners();
     });
-    _positionSub = _player.stream.position.listen((pos) {
+    _positionSub = p.stream.position.listen((pos) {
       _playbackPosition = pos;
       notifyListeners();
     });
-    _durationSub = _player.stream.duration.listen((dur) {
+    _durationSub = p.stream.duration.listen((dur) {
       _playbackDuration = dur;
       notifyListeners();
     });
-    _completedSub = _player.stream.completed.listen((completed) {
+    _completedSub = p.stream.completed.listen((completed) {
       if (completed) {
         _isPlaying = false;
         notifyListeners();
@@ -620,51 +642,71 @@ class MediaVaultController extends ChangeNotifier {
   void playMedia(SavedMedia media) {
     _currentlyPlayingMedia = media;
     _playbackPosition = Duration.zero;
+    _playbackDuration = Duration.zero;
     _playbackSpeed = 1.0;
 
-    // Initialize listeners on first play
-    if (_playingSub == null) {
-      _initPlayerListeners();
-    }
+    _ensurePlayer();
 
     // Open the local file
-    _player.open(Media(media.localFilePath));
-    _player.setRate(1.0);
+    _player!.open(Media(media.localFilePath));
+    _player!.setRate(1.0);
     notifyListeners();
   }
 
   void togglePlayPause() {
-    _player.playOrPause();
+    _player?.playOrPause();
   }
 
   void seekTo(Duration pos) {
-    _player.seek(pos);
+    _player?.seek(pos);
   }
 
   void skipSeconds(int seconds) {
+    if (_player == null) return;
     final newPos = _playbackPosition + Duration(seconds: seconds);
     if (newPos < Duration.zero) {
-      _player.seek(Duration.zero);
+      _player!.seek(Duration.zero);
     } else if (newPos > _playbackDuration) {
-      _player.seek(_playbackDuration);
+      _player!.seek(_playbackDuration);
     } else {
-      _player.seek(newPos);
+      _player!.seek(newPos);
     }
   }
 
   void setPlaybackSpeed(double speed) {
     _playbackSpeed = speed;
-    _player.setRate(speed);
+    _player?.setRate(speed);
     notifyListeners();
   }
 
-  void closePlayer() {
-    _player.stop();
+  void onPlayerDisposed() {
+    _playingSub?.cancel();
+    _positionSub?.cancel();
+    _durationSub?.cancel();
+    _completedSub?.cancel();
+    _playingSub = null;
+    _positionSub = null;
+    _durationSub = null;
+    _completedSub = null;
+    _player = null;
+    _videoController = null;
     _currentlyPlayingMedia = null;
     _isPlaying = false;
     _playbackPosition = Duration.zero;
     _playbackDuration = Duration.zero;
     notifyListeners();
+  }
+
+  void closePlayer() {
+    if (_player != null) {
+      try {
+        _player!.stop();
+      } catch (_) {}
+      try {
+        _player!.dispose();
+      } catch (_) {}
+    }
+    onPlayerDisposed();
   }
 
   @override
@@ -674,7 +716,9 @@ class MediaVaultController extends ChangeNotifier {
     _positionSub?.cancel();
     _durationSub?.cancel();
     _completedSub?.cancel();
-    _player.dispose();
+    _player?.dispose();
+    _player = null;
+    _videoController = null;
     super.dispose();
   }
 }
