@@ -16,7 +16,14 @@ class DownloadStateIdle extends DownloadState {}
 
 class DownloadStateQueued extends DownloadState {
   final MediaInfo mediaInfo;
-  DownloadStateQueued(this.mediaInfo);
+  final String format;
+  final String quality;
+
+  DownloadStateQueued(
+    this.mediaInfo, {
+    this.format = 'MP4',
+    this.quality = 'Best',
+  });
 }
 
 class DownloadStateProgress extends DownloadState {
@@ -107,7 +114,9 @@ class MediaDownloader {
   );
 
   CancelToken? _activeCancelToken;
+  YoutubeExplode? _activeYt;
   bool _isPaused = false;
+  bool _isCancelled = false;
 
   void pause() {
     _isPaused = true;
@@ -116,7 +125,12 @@ class MediaDownloader {
 
   void cancel() {
     _isPaused = false;
+    _isCancelled = true;
     _activeCancelToken?.cancel('CANCELLED_BY_USER');
+    try {
+      _activeYt?.close();
+    } catch (_) {}
+    _activeYt = null;
   }
 
   Stream<DownloadState> startDownload({
@@ -133,9 +147,10 @@ class MediaDownloader {
     String? savePath,
   }) async* {
     _isPaused = false;
+    _isCancelled = false;
     _activeCancelToken = CancelToken();
 
-    yield DownloadStateQueued(mediaInfo);
+    yield DownloadStateQueued(mediaInfo, format: format, quality: quality);
 
     final isVideo = format.toUpperCase() == 'MP4';
     final cleanTitle = mediaInfo.title.replaceAll(RegExp(r'[^a-zA-Z0-9._ -]'), '_').trim();
@@ -199,10 +214,19 @@ class MediaDownloader {
     try {
       // 1. Try real YouTube stream extraction if YouTube video
       if (mediaInfo.isYouTube && mediaInfo.videoId != null) {
+        if (_isCancelled) return;
         try {
           final yt = YoutubeExplode();
           ytInstance = yt;
-          final manifest = await yt.videos.streamsClient.getManifest(mediaInfo.videoId!);
+          _activeYt = yt;
+          final manifest = await yt.videos.streamsClient
+              .getManifest(mediaInfo.videoId!)
+              .timeout(const Duration(seconds: 12));
+          if (_isCancelled) {
+            ytInstance.close();
+            _activeYt = null;
+            return;
+          }
           StreamInfo? chosenStream;
 
           if (isVideo) {
@@ -214,8 +238,11 @@ class MediaDownloader {
               );
             }
           } else {
-            if (manifest.audioOnly.isNotEmpty) {
-              chosenStream = manifest.audioOnly.withHighestBitrate();
+            final audioStreams = manifest.audioOnly.isNotEmpty
+                ? manifest.audioOnly
+                : manifest.audio;
+            if (audioStreams.isNotEmpty) {
+              chosenStream = audioStreams.withHighestBitrate();
             }
           }
 
@@ -224,10 +251,17 @@ class MediaDownloader {
             activeStream = yt.videos.streamsClient.get(chosenStream);
           }
         } catch (_) {
-          // If YoutubeExplode fails (rate-limit, copyright, bot check), clean up and fall back to Dio
+          // If YoutubeExplode fails (rate-limit, copyright, bot check, timeout), clean up and fall back to Dio
           ytInstance?.close();
           ytInstance = null;
+          _activeYt = null;
         }
+      }
+
+      if (_isCancelled) {
+        ytInstance?.close();
+        _activeYt = null;
+        return;
       }
 
       // 2. Fall back to Dio network stream if not YouTube or YoutubeExplode failed

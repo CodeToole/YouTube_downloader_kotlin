@@ -50,14 +50,18 @@ class _MediaPlayerModalState extends State<MediaPlayerModal>
     }
   }
 
+  bool _isTeardownDone = false;
+
+  void _safeTeardown() {
+    if (_isTeardownDone) return;
+    _isTeardownDone = true;
+    widget.controller.closePlayer();
+  }
+
   @override
   void dispose() {
     _equalizerAnimController.dispose();
-    try {
-      player.stop();
-      player.dispose();
-    } catch (_) {}
-    widget.controller.onPlayerDisposed();
+    _safeTeardown();
     super.dispose();
   }
 
@@ -75,11 +79,11 @@ class _MediaPlayerModalState extends State<MediaPlayerModal>
 
     return PopScope(
       canPop: true,
-      onPopInvokedWithResult: (didPop, result) async {
+      onPopInvokedWithResult: (didPop, result) {
         try {
-          await player.dispose();
+          widget.controller.activePlayer?.pause();
         } catch (_) {}
-        widget.controller.onPlayerDisposed();
+        _safeTeardown();
       },
       child: StreamBuilder<Duration>(
         stream: player.stream.position,

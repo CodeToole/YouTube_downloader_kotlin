@@ -6,6 +6,7 @@ import 'package:media_vault/models/download_history_record.dart';
 import 'package:media_vault/models/media_info.dart';
 import 'package:html/parser.dart' as html_parser;
 import 'package:media_vault/services/media_extractor.dart';
+import 'package:media_vault/controllers/media_vault_controller.dart';
 
 void main() {
   group('MediaExtractor Unit Tests', () {
@@ -172,6 +173,20 @@ void main() {
       expect(formatDuration(const Duration(milliseconds: -500)), equals('00:00'));
       expect(formatDuration(const Duration(minutes: 3, seconds: 24)), equals('03:24'));
       expect(formatDuration(const Duration(minutes: 75, seconds: 9)), equals('75:09'));
+    });
+
+    test('MediaVaultController closePlayer and onPlayerDisposed execute safely without exceptions', () {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final controller = MediaVaultController(autoInit: false);
+      expect(controller.hasActivePlayer, isFalse);
+      expect(controller.activePlayer, isNull);
+
+      // Multiple teardown calls are idempotent and safe
+      controller.closePlayer();
+      controller.onPlayerDisposed();
+      expect(controller.hasActivePlayer, isFalse);
+      controller.dispose();
+      expect(controller.isDisposed, isTrue);
     });
   });
 

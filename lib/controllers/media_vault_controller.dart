@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:media_kit/media_kit.dart' hide Playlist;
 import 'package:media_kit_video/media_kit_video.dart';
 import '../models/media_info.dart';
@@ -17,8 +17,10 @@ class MediaVaultController extends ChangeNotifier {
   final MediaDownloader _downloader = MediaDownloader();
   StreamSubscription<DownloadState>? _downloadSub;
 
-  MediaVaultController() {
-    init();
+  MediaVaultController({bool autoInit = true}) {
+    if (autoInit) {
+      init();
+    }
   }
 
   Future<void> init() async {
@@ -68,6 +70,15 @@ class MediaVaultController extends ChangeNotifier {
 
   void setFormat(String format) {
     _selectedFormat = format;
+    if (_selectedFormat.toUpperCase() == 'MP3') {
+      if (!const ['Best', '320 kbps', '256 kbps', '192 kbps', '128 kbps'].contains(_selectedQuality)) {
+        _selectedQuality = 'Best';
+      }
+    } else {
+      if (!const ['Best', '1080p', '720p', '480p', '360p'].contains(_selectedQuality)) {
+        _selectedQuality = 'Best';
+      }
+    }
     notifyListeners();
   }
 
@@ -172,6 +183,8 @@ class MediaVaultController extends ChangeNotifier {
   }
 
   void cancelDownload() {
+    _downloadSub?.cancel();
+    _downloadSub = null;
     _downloader.cancel();
     _downloadState = DownloadStateIdle();
     notifyListeners();
@@ -587,8 +600,21 @@ class MediaVaultController extends ChangeNotifier {
   // ==========================================
   // 7. In-App Playback State (media_kit)
   // ==========================================
+  bool _isDisposed = false;
+  bool get isDisposed => _isDisposed;
+
+  @override
+  void notifyListeners() {
+    if (!_isDisposed) {
+      super.notifyListeners();
+    }
+  }
+
   Player? _player;
   VideoController? _videoController;
+
+  Player? get activePlayer => _player;
+  bool get hasActivePlayer => _player != null;
 
   Player get player {
     _ensurePlayer();
@@ -597,13 +623,13 @@ class MediaVaultController extends ChangeNotifier {
 
   VideoController get videoController {
     _ensurePlayer();
+    _videoController ??= VideoController(_player!);
     return _videoController!;
   }
 
   void _ensurePlayer() {
     if (_player == null) {
       _player = Player();
-      _videoController = VideoController(_player!);
       _initPlayerListeners();
     }
   }
@@ -711,16 +737,25 @@ class MediaVaultController extends ChangeNotifier {
     _isPlaying = false;
     _playbackPosition = Duration.zero;
     _playbackDuration = Duration.zero;
-    notifyListeners();
+
+    // Defers notification so it is never dispatched while the widget tree is locked (e.g. during State.dispose / unmount)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_isDisposed) {
+        notifyListeners();
+      }
+    });
   }
 
   void closePlayer() {
     if (_player != null) {
+      final p = _player;
+      _player = null;
+      _videoController = null;
       try {
-        _player!.stop();
+        p?.stop();
       } catch (_) {}
       try {
-        _player!.dispose();
+        p?.dispose();
       } catch (_) {}
     }
     onPlayerDisposed();
@@ -728,12 +763,15 @@ class MediaVaultController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _isDisposed = true;
     _downloadSub?.cancel();
     _playingSub?.cancel();
     _positionSub?.cancel();
     _durationSub?.cancel();
     _completedSub?.cancel();
-    _player?.dispose();
+    try {
+      _player?.dispose();
+    } catch (_) {}
     _player = null;
     _videoController = null;
     super.dispose();

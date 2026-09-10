@@ -89,6 +89,10 @@ class _DownloaderScreenState extends State<DownloaderScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<MediaVaultController>();
+    final isAudioFormat = controller.selectedFormat.toUpperCase() == 'MP3';
+    final qualityOptions = isAudioFormat
+        ? const ['Best', '320 kbps', '256 kbps', '192 kbps', '128 kbps']
+        : const ['Best', '1080p', '720p', '480p', '360p'];
 
     return Scaffold(
       appBar: AppBar(
@@ -378,14 +382,15 @@ class _DownloaderScreenState extends State<DownloaderScreen> {
                     const SizedBox(height: 16),
 
                     // Quality Selection
-                    const Text(
-                      'Select Quality',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+
+                    Text(
+                      isAudioFormat ? 'Select Audio Quality (Bitrate)' : 'Select Video Quality',
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                     ),
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 8,
-                      children: ['Best', '1080p', '720p', '480p', '360p'].map((q) {
+                      children: qualityOptions.map((q) {
                         return ChoiceChip(
                           label: Text(q),
                           selected: controller.selectedQuality == q,
@@ -444,22 +449,40 @@ class _DownloaderScreenState extends State<DownloaderScreen> {
                       const SizedBox(height: 20),
                     ],
 
-                    // Download Button
+                    // Download / Stop Button
                     SizedBox(
                       width: double.infinity,
                       height: 50,
-                      child: FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFD0BCFF),
-                          foregroundColor: const Color(0xFF381E72),
-                        ),
-                        onPressed: () => _startDownloadWithSaveDialog(context, controller),
-                        icon: const Icon(Icons.download),
-                        label: const Text(
-                          'Start Download',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                        ),
-                      ),
+                      child: (controller.downloadState is DownloadStateQueued ||
+                              controller.downloadState is DownloadStateProgress)
+                          ? FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: const Color(0xFFBA1A1A),
+                                foregroundColor: Colors.white,
+                              ),
+                              onPressed: () => controller.cancelDownload(),
+                              icon: const Icon(Icons.stop_circle_outlined),
+                              label: const Text(
+                                'Stop / Cancel Download',
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                              ),
+                            )
+                          : FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: isAudioFormat
+                                    ? const Color(0xFF6750A4)
+                                    : const Color(0xFFD0BCFF),
+                                foregroundColor: isAudioFormat
+                                    ? Colors.white
+                                    : const Color(0xFF381E72),
+                              ),
+                              onPressed: () => _startDownloadWithSaveDialog(context, controller),
+                              icon: Icon(isAudioFormat ? Icons.music_note : Icons.download),
+                              label: Text(
+                                isAudioFormat ? 'Download MP3 (Audio)' : 'Download MP4 (Video)',
+                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                              ),
+                            ),
                     ),
                   ],
                 ),
@@ -483,26 +506,76 @@ class _DownloaderScreenState extends State<DownloaderScreen> {
     }
 
     if (state is DownloadStateQueued) {
+      final isAudioState = state.format.toUpperCase() == 'MP3';
       return Card(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Row(
             children: [
-              const CircularProgressIndicator(),
+              const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation(Color(0xFFD0BCFF)),
+                ),
+              ),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Connecting to Stream...',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                    Text(state.mediaInfo.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: isAudioState
+                                ? const Color(0xFF6750A4).withValues(alpha: 0.3)
+                                : const Color(0xFFFF0000).withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            isAudioState ? 'MP3' : 'MP4',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: isAudioState
+                                  ? const Color(0xFFD0BCFF)
+                                  : const Color(0xFFFF8A80),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          isAudioState
+                              ? 'Connecting to Audio Stream (${state.quality})...'
+                              : 'Connecting to Video Stream (${state.quality})...',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      state.mediaInfo.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
                   ],
                 ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.redAccent,
+                  side: const BorderSide(color: Colors.redAccent),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+                onPressed: () => controller.cancelDownload(),
+                icon: const Icon(Icons.close, size: 16),
+                label: const Text('Cancel'),
               ),
             ],
           ),
@@ -511,6 +584,7 @@ class _DownloaderScreenState extends State<DownloaderScreen> {
     }
 
     if (state is DownloadStateProgress) {
+      final isAudioProgress = state.format.toUpperCase() == 'MP3';
       final percentInt = (state.progress * 100).toInt();
       return Card(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -520,8 +594,27 @@ class _DownloaderScreenState extends State<DownloaderScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: isAudioProgress
+                          ? const Color(0xFF6750A4).withValues(alpha: 0.3)
+                          : const Color(0xFFFF0000).withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      isAudioProgress ? 'MP3' : 'MP4',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: isAudioProgress
+                            ? const Color(0xFFD0BCFF)
+                            : const Color(0xFFFF8A80),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       state.mediaInfo.title,
@@ -530,6 +623,7 @@ class _DownloaderScreenState extends State<DownloaderScreen> {
                       style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                     ),
                   ),
+                  const SizedBox(width: 8),
                   Text(
                     '$percentInt%',
                     style: const TextStyle(
